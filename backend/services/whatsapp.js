@@ -86,6 +86,49 @@ async function startWhatsApp() {
       await upsertGroup(update)
     }
   })
+
+  // Écoute des messages reçus
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return
+    for (const msg of messages) {
+      if (!msg.message || msg.key.fromMe) continue
+      const jid = msg.key.remoteJid
+      if (!jid) continue
+
+      const text =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        msg.message.imageMessage?.caption ||
+        msg.message.videoMessage?.caption ||
+        '[Média]'
+
+      const isGroup = jid.endsWith('@g.us')
+      const senderJid = isGroup ? (msg.key.participant || jid) : jid
+      const senderName = msg.pushName || senderJid.split('@')[0] || 'Inconnu'
+
+      let chatName = null
+      if (isGroup) {
+        const { data: group } = await supabase
+          .from('groups')
+          .select('name')
+          .eq('whatsapp_id', jid)
+          .single()
+        chatName = group?.name || jid.split('@')[0]
+      } else {
+        chatName = senderName
+      }
+
+      await supabase.from('conversations').insert({
+        direction: 'received',
+        sender_name: senderName,
+        sender_jid: senderJid,
+        chat_jid: jid,
+        chat_name: chatName,
+        message: text,
+        timestamp: new Date((msg.messageTimestamp || Date.now() / 1000) * 1000).toISOString(),
+      })
+    }
+  })
 }
 
 async function syncGroups() {
