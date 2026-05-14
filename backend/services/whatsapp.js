@@ -108,12 +108,25 @@ async function startWhatsApp() {
 
       let chatName = null
       if (isGroup) {
+        // 1. Chercher dans la DB
         const { data: group } = await supabase
           .from('groups')
           .select('name')
           .eq('whatsapp_id', jid)
           .single()
-        chatName = group?.name || jid.split('@')[0]
+        if (group?.name) {
+          chatName = group.name
+        } else {
+          // 2. Fallback : récupérer depuis WhatsApp directement
+          try {
+            const meta = await sock.groupMetadata(jid)
+            chatName = meta?.subject || jid.split('@')[0]
+            // Sauvegarder dans la DB pour la prochaine fois
+            if (meta?.subject) await upsertGroup(meta)
+          } catch (_) {
+            chatName = jid.split('@')[0]
+          }
+        }
       } else {
         chatName = senderName
       }

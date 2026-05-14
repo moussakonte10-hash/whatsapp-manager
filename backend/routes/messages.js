@@ -97,19 +97,27 @@ router.get('/conversations', async (req, res) => {
       .order('timestamp', { ascending: false })
     if (error) return res.status(500).json({ error: error.message })
 
+    // Charger tous les groupes pour résoudre les noms
+    const { data: groups } = await supabase.from('groups').select('whatsapp_id, name')
+    const groupMap = {}
+    if (groups) groups.forEach((g) => { groupMap[g.whatsapp_id] = g.name })
+
     // Grouper par chat_jid, garder le dernier message + le nombre total
     const chatsMap = {}
     for (const msg of data) {
+      // Résoudre le nom depuis la table groups si dispo
+      const resolvedName = groupMap[msg.chat_jid] || msg.chat_name || msg.chat_jid.split('@')[0]
       if (!chatsMap[msg.chat_jid]) {
         chatsMap[msg.chat_jid] = {
           chat_jid: msg.chat_jid,
-          chat_name: msg.chat_name,
+          chat_name: resolvedName,
           last_message: msg.message,
           last_timestamp: msg.timestamp,
           unread: msg.direction === 'received' ? 1 : 0,
           total: 1,
         }
       } else {
+        chatsMap[msg.chat_jid].chat_name = resolvedName
         chatsMap[msg.chat_jid].total++
         if (msg.direction === 'received') chatsMap[msg.chat_jid].unread++
       }
