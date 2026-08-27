@@ -43,7 +43,7 @@ router.post('/send', async (req, res) => {
       await sendMessageToContact(target_id, message)
       results = [{ contact: target_id, status: 'sent' }]
       chatJid = target_id.includes('@') ? target_id : `${target_id}@s.whatsapp.net`
-      chatName = target_id
+      targetName = target_id
     }
 
     // Sauvegarder dans message_history (legacy)
