@@ -36,17 +36,17 @@ router.post('/send', async (req, res) => {
       if (!community) return res.status(404).json({ error: 'Communauté introuvable' })
       results = await sendMessageToCommunity(target_id, message, delay || 2000)
       targetName = community.name
-      chatJid = `community:${target_id}`
+      chatJid = 'community:' + target_id
     }
 
     if (type === 'private') {
       await sendMessageToContact(target_id, message)
       results = [{ contact: target_id, status: 'sent' }]
-      chatJid = target_id.includes('@') ? target_id : `${target_id}@s.whatsapp.net`
       targetName = target_id
+      chatJid = target_id.includes('@') ? target_id : target_id + '@s.whatsapp.net'
     }
 
-    // Sauvegarder dans message_history (legacy)
+    // Sauvegarder dans message_history
     await supabase.from('message_history').insert({
       type,
       target_id: target_id.toString(),
@@ -56,16 +56,20 @@ router.post('/send', async (req, res) => {
       sent_at: new Date().toISOString(),
     })
 
-    // Sauvegarder dans conversations (nouveau)
-    await supabase.from('conversations').insert({
-      direction: 'sent',
-      sender_name: 'Moi',
-      sender_jid: 'me',
-      chat_jid: chatJid,
-      chat_name: targetName,
-      message,
-      timestamp: new Date().toISOString(),
-    })
+    // Sauvegarder dans conversations
+    try {
+      await supabase.from('conversations').insert({
+        direction: 'sent',
+        sender_name: 'Moi',
+        sender_jid: 'me',
+        chat_jid: chatJid,
+        chat_name: targetName,
+        message: message,
+        timestamp: new Date().toISOString(),
+      })
+    } catch (e) {
+      console.error('conversations insert error:', e.message)
+    }
 
     res.json({ success: true, results })
   } catch (err) {
@@ -97,15 +101,13 @@ router.get('/conversations', async (req, res) => {
       .order('timestamp', { ascending: false })
     if (error) return res.status(500).json({ error: error.message })
 
-    // Charger tous les groupes pour résoudre les noms
     const { data: groups } = await supabase.from('groups').select('whatsapp_id, name')
     const groupMap = {}
-    if (groups) groups.forEach((g) => { groupMap[g.whatsapp_id] = g.name })
+    if (groups) groups.forEach(function(g) { groupMap[g.whatsapp_id] = g.name })
 
-    // Grouper par chat_jid, garder le dernier message + le nombre total
     const chatsMap = {}
-    for (const msg of data) {
-      // Résoudre le nom depuis la table groups si dispo
+    for (let i = 0; i < data.length; i++) {
+      const msg = data[i]
       const resolvedName = groupMap[msg.chat_jid] || msg.chat_name || msg.chat_jid.split('@')[0]
       if (!chatsMap[msg.chat_jid]) {
         chatsMap[msg.chat_jid] = {
@@ -145,7 +147,7 @@ router.get('/conversations/:chatJid', async (req, res) => {
   }
 })
 
-// Supprimer un message (avec PIN)
+// Supprimer un message
 router.delete('/conversations/message/:id', async (req, res) => {
   const { pin } = req.body
   if (pin !== DELETE_PIN) return res.status(403).json({ error: 'PIN incorrect' })
@@ -158,7 +160,7 @@ router.delete('/conversations/message/:id', async (req, res) => {
   }
 })
 
-// Supprimer toute une conversation (avec PIN)
+// Supprimer une conversation
 router.delete('/conversations/chat/:chatJid', async (req, res) => {
   const { pin } = req.body
   if (pin !== DELETE_PIN) return res.status(403).json({ error: 'PIN incorrect' })
@@ -172,12 +174,12 @@ router.delete('/conversations/chat/:chatJid', async (req, res) => {
   }
 })
 
-// Tout supprimer (avec PIN)
+// Tout supprimer
 router.delete('/conversations', async (req, res) => {
   const { pin } = req.body
   if (pin !== DELETE_PIN) return res.status(403).json({ error: 'PIN incorrect' })
   try {
-    const { error } = await supabase.from('conversations').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    const { error } = await supabase.from('conversations').delete().gte('id', '00000000-0000-0000-0000-000000000000')
     if (error) return res.status(500).json({ error: error.message })
     res.json({ success: true })
   } catch (err) {
